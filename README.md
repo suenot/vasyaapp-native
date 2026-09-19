@@ -38,6 +38,7 @@ The package script builds both release executables, the Whisper helper and a sma
 - Cached and live chats, unread state, favorites, custom folder filters and tab ordering/visibility.
 - Paged history and topics, formatted/selectable text, search with message navigation, sending and single/bulk forwarding.
 - Files, images, clipboard images, native file picker, voice recording and camera capture; downloaded audio/video opens with the system application.
+- Optional per-chat incoming/outgoing LLM translation, original-text access and translated attachment captions; [setup and behavior](docs/TRANSLATION.md).
 - Cloud Deepgram and local Whisper transcription, optional automatic transcription, model download and per-profile settings.
 - Native light/dark themes, scale, text size, density, sender grouping, Russian/English labels, folder layout and remappable shortcuts.
 - Embedded engine, remote REST/SSE engine, independent legacy metadata synchronization and opt-in authenticated local REST/GraphQL/SSE API.

@@ -83,7 +83,8 @@ async fn send_ack_deduplicates_echo_and_preserves_newly_typed_draft() {
     c.send_message(None).unwrap();
     // Abort the embedded call before yielding; acknowledgments are supplied below.
     c.abort_requests();
-    assert!(c.vm.draft.is_empty());
+    assert_eq!(c.vm.draft, "first message");
+    let delivery = c.translation.sending[&selected].clone();
     let pending = c.histories[&selected][0].id;
     assert!(pending < 0);
     c.vm.draft = "second message still being composed".into();
@@ -93,7 +94,7 @@ async fn send_ack_deduplicates_echo_and_preserves_newly_typed_draft() {
         .push(message_view(&message(50, "first message")));
     reply(
         &mut c,
-        Query::Sent(selected.clone(), pending),
+        Query::Delivery(Box::new(delivery)),
         message(50, "first message"),
         false,
     );

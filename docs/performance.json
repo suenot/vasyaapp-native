@@ -6,63 +6,63 @@
   "applications": {
     "gpui": {
       "metrics": {
-        "render_element_construction_p95_ms": 0.365,
-        "render_element_construction_max_ms": 0.403916,
-        "input_widget_to_snapshot_p95_ms": 18.2235,
+        "render_element_construction_p95_ms": 0.043209,
+        "render_element_construction_max_ms": 0.067958,
+        "input_widget_to_snapshot_p95_ms": 22.0455,
         "input_samples": 299,
-        "render_samples": 57,
-        "message_row_constructions": 344,
-        "loaded_messages": 3186,
+        "render_samples": 2,
+        "message_row_constructions": 14,
+        "loaded_messages": 3239,
         "chats": 10000,
         "gpu_frame_presentation_measured": false
       },
       "sample_at_seconds": 15,
-      "rss_kib": 154800,
-      "cpu_percent": 6.2
+      "rss_kib": 152224,
+      "cpu_percent": 20.2
     },
     "iced": {
       "metrics": {
         "gui": "iced",
         "target_duration_seconds": 30,
-        "duration_seconds": 30.09561925,
+        "duration_seconds": 30.101313625,
         "chats": 10000,
         "loaded_messages": 3662,
-        "snapshots": 1647,
+        "snapshots": 1500,
         "update_handler": {
-          "samples": 7199,
-          "p95_ms": 0.547,
-          "max_ms": 0.757
+          "samples": 5908,
+          "p95_ms": 2.044,
+          "max_ms": 4.693
         },
         "view_construction": {
-          "samples": 6607,
-          "p95_ms": 0.036,
-          "max_ms": 0.101
+          "samples": 4705,
+          "p95_ms": 0.205,
+          "max_ms": 0.547
         },
         "watch_delivery_to_handler": {
-          "samples": 1647,
-          "p95_ms": 0.474,
-          "max_ms": 26.297
+          "samples": 1500,
+          "p95_ms": 21.064,
+          "max_ms": 34.735
         },
         "background_layout_completion": {
-          "samples": 1647,
-          "p95_ms": 7.367,
-          "max_ms": 119.311
+          "samples": 1497,
+          "p95_ms": 14.841,
+          "max_ms": 132.696
         },
         "scripted_draft_to_snapshot": {
           "samples": 300,
-          "p95_ms": 17.939,
-          "max_ms": 19.571
+          "p95_ms": 39.841,
+          "max_ms": 45.547
         },
         "timer_to_handler": {
           "samples": 300,
-          "p95_ms": 8.424,
-          "max_ms": 19.6
+          "p95_ms": 23.208,
+          "max_ms": 32.678
         },
         "limitations": "Scripted application events, not physical input latency. View construction excludes widget layout, GPU submission, presentation and frame time."
       },
       "sample_at_seconds": 15,
-      "rss_kib": 140960,
-      "cpu_percent": 17.7
+      "rss_kib": 144656,
+      "cpu_percent": 49.6
     }
   }
 }

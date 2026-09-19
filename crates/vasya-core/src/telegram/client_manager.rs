@@ -177,6 +177,11 @@ impl TelegramClientManager {
     }
 
     /// Get the current API ID
+    /// Share the per-profile encryption key with write-only secret settings stores.
+    pub fn master_key_provider(&self) -> Arc<dyn MasterKeyProvider> {
+        self.key_provider.clone()
+    }
+
     pub fn api_id(&self) -> i32 {
         self.credentials.read().unwrap().0
     }

@@ -9480,7 +9480,7 @@ dependencies = [
 
 [[package]]
 name = "vasya-backend"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -9501,9 +9501,10 @@ dependencies = [
 
 [[package]]
 name = "vasya-core"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "anyhow",
+ "axum",
  "chacha20poly1305",
  "grammers-client",
  "grammers-mtsender",
@@ -9518,13 +9519,14 @@ dependencies = [
  "serde_json",
  "sha1",
  "sha2 0.10.9",
+ "tempfile",
  "tokio",
  "tracing",
 ]
 
 [[package]]
 name = "vasya-native"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -9540,7 +9542,7 @@ dependencies = [
 
 [[package]]
 name = "vasya-server"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "anyhow",
  "async-graphql",
@@ -9571,7 +9573,7 @@ dependencies = [
 
 [[package]]
 name = "vasyaapp-gpui"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "anyhow",
  "gpui-kit",
@@ -9585,7 +9587,7 @@ dependencies = [
 
 [[package]]
 name = "vasyaapp-iced"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "arboard",
  "iced",

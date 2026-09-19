@@ -57,6 +57,9 @@ struct Messenger {
     preview_active: usize,
     preview_clock: u64,
     selected_messages: HashSet<i32>,
+    rendered_visible: BTreeMap<i32, String>,
+    last_visible: BTreeMap<i32, String>,
+    visible_publish_pending: bool,
     messages: ListState,
     menu: bool,
     _subscriptions: Vec<Subscription>,
@@ -92,23 +95,20 @@ impl Messenger {
                         .send(UiCommand::Search(input.read(cx).value().to_string()));
                 }
             }),
-            cx.subscribe_in(
-                &composer,
-                window,
-                |this, input, event, window, cx| match event {
-                    InputEvent::Change => this
-                        .backend
-                        .send(UiCommand::Draft(input.read(cx).value().to_string())),
-                    InputEvent::PressEnter { shift: false, .. } => {
-                        this.backend
-                            .send(UiCommand::Draft(input.read(cx).value().to_string()));
-                        this.backend.send(UiCommand::Send);
-                        input.update(cx, |input, cx| input.set_value("", window, cx));
-                        this.messages.scroll_to_end();
-                    }
-                    _ => {}
-                },
-            ),
+            cx.subscribe_in(&composer, window, |this, input, event, _, cx| match event {
+                InputEvent::Change => this
+                    .backend
+                    .send(UiCommand::Draft(input.read(cx).value().to_string())),
+                InputEvent::PressEnter { shift: false, .. }
+                    if !this.vm.outgoing_translation_pending =>
+                {
+                    this.backend
+                        .send(UiCommand::Draft(input.read(cx).value().to_string()));
+                    this.backend.send(UiCommand::Send);
+                    this.messages.scroll_to_end();
+                }
+                _ => {}
+            }),
         ];
         let messages = ListState::new(vm.messages.len(), ListAlignment::Bottom, px(300.));
         messages.set_follow_mode(FollowMode::Tail);
@@ -186,6 +186,9 @@ impl Messenger {
             preview_active: 0,
             preview_clock: 0,
             selected_messages: HashSet::new(),
+            rendered_visible: BTreeMap::new(),
+            last_visible: BTreeMap::new(),
+            visible_publish_pending: false,
             messages,
             menu: false,
             _subscriptions: subscriptions,
@@ -221,6 +224,8 @@ impl Messenger {
                 }
             }
             self.selected_messages.clear();
+            self.last_visible.clear();
+            self.rendered_visible.clear();
             self.messages.reset(vm.messages.len());
             self.messages.scroll_to_end();
         } else if !Arc::ptr_eq(&vm.messages, &self.vm.messages) {
@@ -257,6 +262,10 @@ impl Messenger {
                         || previous.image_path != current.image_path
                         || previous.transcription != current.transcription
                         || previous.failed != current.failed
+                        || previous.translation != current.translation
+                        || previous.translation_pending != current.translation_pending
+                        || previous.translation_error != current.translation_error
+                        || previous.translation_show_original != current.translation_show_original
                     {
                         self.messages.remeasure_items(index..index + 1);
                     }
@@ -542,6 +551,39 @@ impl Messenger {
         let Some(m) = vm.messages.get(ix) else {
             return div().into_any_element();
         };
+        self.rendered_visible.insert(m.id, m.text.clone());
+        if !self.visible_publish_pending {
+            self.visible_publish_pending = true;
+            let scope = (
+                vm.selected_account.clone(),
+                vm.selected_chat,
+                vm.selected_topic,
+            );
+            cx.defer_in(window, move |this, _, cx| {
+                this.visible_publish_pending = false;
+                if scope
+                    != (
+                        this.vm.selected_account.clone(),
+                        this.vm.selected_chat,
+                        this.vm.selected_topic,
+                    )
+                {
+                    cx.notify();
+                    return;
+                }
+                if this.rendered_visible != this.last_visible {
+                    this.last_visible = this.rendered_visible.clone();
+                    if let (Some(account), Some(chat), topic) = scope {
+                        this.backend.send(UiCommand::VisibleMessages {
+                            account,
+                            chat,
+                            topic,
+                            ids: this.last_visible.keys().copied().collect(),
+                        });
+                    }
+                }
+            });
+        }
         let message_padding = match self.vm.preferences.density.as_str() {
             "very-compact" => 4.,
             "compact" => 8.,
@@ -577,15 +619,16 @@ impl Messenger {
         if let Some(path) = &m.image_path {
             body = body.child(self.preview(path.clone(), window, cx));
         }
-        if !m.text.is_empty() {
+        let display_text = m.display_text();
+        if !display_text.is_empty() {
             body = body.child(
                 TextView::markdown(
                     ("text", m.id as usize),
                     if self.vm.preferences.markdown {
-                        m.text.clone()
+                        display_text.to_string()
                     } else {
                         let mut escaped = String::new();
-                        for c in m.text.chars() {
+                        for c in display_text.chars() {
                             if "\\`*_{}[]<>()#+-.!|~".contains(c) {
                                 escaped.push('\\');
                             }
@@ -603,10 +646,59 @@ impl Messenger {
                 .on_link_click(|url, _, _, cx| cx.open_url(url)),
             );
         }
+        if m.translation_pending {
+            body = body.child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(self.tr("Translating…")),
+            );
+        }
+        if let Some(error) = &m.translation_error {
+            body = body.child(
+                div()
+                    .text_sm()
+                    .text_color(cx.theme().danger)
+                    .child(format!("{}: {error}", self.tr("Translation failed"))),
+            );
+        }
         if let Some(text) = &m.transcription {
             body = body.child(div().text_sm().child(text.clone()));
         }
-        let mut actions = div().h_flex().gap_1();
+        let mut actions = div().h_flex().flex_wrap().gap_1();
+        if let (Some(account), Some(chat)) = (&vm.selected_account, vm.selected_chat) {
+            if m.translation.is_some() {
+                actions = actions.child(self.button(
+                    ("translation-toggle", ix),
+                    if m.translation_show_original {
+                        "Show translation"
+                    } else {
+                        "Show original"
+                    },
+                    UiCommand::ToggleMessageTranslation {
+                        account: account.clone(),
+                        chat,
+                        topic: vm.selected_topic,
+                        id: m.id,
+                    },
+                ));
+            }
+            if m.translation_error.is_some() {
+                actions = actions.child(
+                    self.button(
+                        ("translation-retry", ix),
+                        "Retry translation",
+                        UiCommand::RetryTranslation {
+                            account: account.clone(),
+                            chat,
+                            topic: vm.selected_topic,
+                            id: m.id,
+                        },
+                    )
+                    .disabled(m.translation_pending),
+                );
+            }
+        }
         if m.id > 0 {
             let id = m.id;
             actions = actions.child(
@@ -656,6 +748,7 @@ impl Messenger {
 impl Render for Messenger {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let render_started = Instant::now();
+        self.rendered_visible.clear();
         // Bind viewport IDs and provenance to the same rendered snapshot. An
         // event from an old list cannot request media in a newly opened chat.
         let rendered = self.vm.clone();
@@ -866,6 +959,11 @@ impl Render for Messenger {
                     "Find",
                     UiCommand::OpenForm(FormKind::SearchMessages),
                 ))
+                .child(self.button(
+                    "chat-translation",
+                    "Chat translation",
+                    UiCommand::OpenForm(FormKind::ChatTranslation),
+                ))
                 .child(self.button("calls", "Calls unavailable", UiCommand::Calls));
         }
         let mut topics = div().h_flex().flex_wrap().gap_1().px_3();
@@ -910,6 +1008,25 @@ impl Render for Messenger {
                     .gap_2()
                     .border_t_1()
                     .border_color(cx.theme().border)
+                    .when(self.vm.outgoing_translation_target.is_some(), |panel| {
+                        panel.child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(if self.vm.outgoing_translation_pending {
+                                    self.tr("Translating before sending…")
+                                } else {
+                                    format!(
+                                        "{}: {}",
+                                        self.tr("Translate outgoing messages"),
+                                        self.vm
+                                            .outgoing_translation_target
+                                            .as_deref()
+                                            .unwrap_or_default()
+                                    )
+                                }),
+                        )
+                    })
                     .child(Textarea::new(&self.composer).on_paste(move |item, _, _| {
                         let mut handled = false;
                         for entry in item.entries() {
@@ -957,7 +1074,11 @@ impl Render for Messenger {
                             .child(self.button("voice", "Voice", UiCommand::RecordVoice))
                             .child(self.button("camera", "Camera", UiCommand::Camera))
                             .child(div().flex_1())
-                            .child(self.button("send", "Send", UiCommand::Send).primary()),
+                            .child(
+                                self.button("send", "Send", UiCommand::Send)
+                                    .primary()
+                                    .disabled(self.vm.outgoing_translation_pending),
+                            ),
                     ),
             );
         } else {
@@ -1096,6 +1217,10 @@ impl Render for Messenger {
                 ("Use embedded engine", UiCommand::EmbeddedMode),
                 ("Local API", UiCommand::OpenForm(FormKind::LocalApi)),
                 ("Speech recognition", UiCommand::OpenForm(FormKind::Stt)),
+                (
+                    "Translation settings",
+                    UiCommand::OpenForm(FormKind::TranslationSettings),
+                ),
                 ("Create group", UiCommand::OpenForm(FormKind::CreateGroup)),
                 (
                     "Create channel",
@@ -1116,13 +1241,16 @@ impl Render for Messenger {
             .enumerate()
             {
                 let backend = self.backend.clone();
-                menu = menu.child(Button::new(("menu-item", i)).label(label).small().on_click(
-                    cx.listener(move |this, _, _, cx| {
-                        this.menu = false;
-                        backend.send(command.clone());
-                        cx.notify();
-                    }),
-                ));
+                menu = menu.child(
+                    Button::new(("menu-item", i))
+                        .label(self.tr(label))
+                        .small()
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.menu = false;
+                            backend.send(command.clone());
+                            cx.notify();
+                        })),
+                );
             }
             root = root.child(menu);
         }

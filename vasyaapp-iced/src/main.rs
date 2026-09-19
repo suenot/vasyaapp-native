@@ -452,6 +452,7 @@ impl App {
                         .unwrap_or_default();
                 }
                 if switched
+                    || should_sync_draft(&self.vm.draft, &vm.draft, &self.editor.text())
                     || (vm.draft.is_empty()
                         && self.sent_draft.as_ref() == Some(&self.editor.text()))
                 {
@@ -600,6 +601,7 @@ impl App {
             Event::ClipboardImage(result) => match result {
                 Ok(bytes) => {
                     self.clipboard_error = None;
+                    self.sent_draft = Some(self.editor.text());
                     self.app.send(UiCommand::SendClipboardImage {
                         bytes,
                         extension: "png".into(),
@@ -618,7 +620,10 @@ impl App {
                     Event::File,
                 )
             }
-            Event::File(Some(path)) => self.app.send(UiCommand::SendFile(path)),
+            Event::File(Some(path)) => {
+                self.sent_draft = Some(self.editor.text());
+                self.app.send(UiCommand::SendFile(path));
+            }
             Event::File(None) => {}
             Event::Menu => self.menu = !self.menu,
             Event::ChatsScrolled(y) => self.chat_offset = y,
@@ -732,8 +737,10 @@ impl App {
             for message in &self.vm.messages[start..end] {
                 let key = height_key(message, 0., self.vm.preferences.text_size);
                 if self.rendered.get(&message.id).map(|(cached, _)| *cached) != Some(key) {
-                    self.rendered
-                        .insert(message.id, (key, markdown::parse(&message.text).collect()));
+                    self.rendered.insert(
+                        message.id,
+                        (key, markdown::parse(message.display_text()).collect()),
+                    );
                 }
             }
             self.rendered.retain(|id, _| ids.contains(id));
@@ -1102,6 +1109,7 @@ impl App {
             ("Tabs", FormKind::Tabs),
             ("Keyboard shortcuts", FormKind::Hotkeys),
             ("Transcription", FormKind::Stt),
+            ("Translation settings", FormKind::TranslationSettings),
             ("Local API", FormKind::LocalApi),
             ("Create group", FormKind::CreateGroup),
             ("Create channel", FormKind::CreateChannel),
@@ -1120,6 +1128,10 @@ impl App {
         menu = menu.push(self.action("Downloads", UiCommand::Downloads));
         if self.vm.selected_chat.is_some() {
             menu = menu.push(self.action("Favorite / unfavorite", UiCommand::ToggleFavorite));
+            menu = menu.push(self.action(
+                "Chat translation",
+                UiCommand::OpenForm(FormKind::ChatTranslation),
+            ));
         }
         if self.vm.selected_folder.is_some() {
             menu = menu.push(self.action("Delete folder", UiCommand::DeleteFolder));
@@ -1190,13 +1202,17 @@ impl App {
                 "Write a message…"
             })
             .on_action(Event::Edit)
-            .key_binding(|press| {
+            .key_binding(move |press| {
                 if press.key == iced::keyboard::Key::Named(iced::keyboard::key::Named::Enter)
                     && !press.modifiers.shift()
                 {
-                    Some(text_editor::Binding::Custom(Event::Command(
-                        UiCommand::Send,
-                    )))
+                    if vm.outgoing_translation_pending {
+                        None
+                    } else {
+                        Some(text_editor::Binding::Custom(Event::Command(
+                            UiCommand::Send,
+                        )))
+                    }
                 } else {
                     text_editor::Binding::from_key_press(press)
                 }
@@ -1208,6 +1224,18 @@ impl App {
             scrollable(topics).direction(scrollable::Direction::Horizontal(Default::default()))
         ]
         .spacing(12);
+        let translation_status = if vm.outgoing_translation_pending {
+            self.tr("Translating before sending…")
+        } else if let Some(target) = &vm.outgoing_translation_target {
+            format!("{}: {}", self.tr("Outgoing translation"), target)
+        } else {
+            self.tr("Chat translation")
+        };
+        body = body.push(row![button(text(translation_status).size(12))
+            .style(button::text)
+            .on_press(Event::Command(UiCommand::OpenForm(
+                FormKind::ChatTranslation
+            ))),]);
         if !self.selected_messages.is_empty() {
             let mut ids: Vec<_> = self.selected_messages.iter().copied().collect();
             ids.sort_unstable();
@@ -1223,6 +1251,19 @@ impl App {
         if vm.has_older {
             body = body.push(self.action("Load earlier messages", UiCommand::LoadOlder));
         }
+        let mut send_button = button(
+            text(self.tr(if vm.outgoing_translation_pending {
+                "Translating…"
+            } else {
+                "Send"
+            }))
+            .size(12),
+        )
+        .padding([7, 10])
+        .style(button::secondary);
+        if !vm.outgoing_translation_pending {
+            send_button = send_button.on_press(Event::Command(UiCommand::Send));
+        }
         body = body.push(history).push(editor).push(
             row![
                 button(text(self.tr("Attach file"))).on_press(Event::PickFile),
@@ -1230,7 +1271,7 @@ impl App {
                 self.action("Voice", UiCommand::RecordVoice),
                 self.action("Camera", UiCommand::Camera),
                 space().width(Fill),
-                self.action("Send", UiCommand::Send)
+                send_button
             ]
             .spacing(8),
         );
@@ -1263,12 +1304,14 @@ impl App {
                 )
                 .map(Event::OpenLink),
             )
-            .height((height - 100. - extra).max(30.))
+            .height((height - 100. - extra - translation_chrome(msg)).max(30.))
             .into()
         } else {
-            text(&msg.text)
+            text(msg.display_text())
                 .size(self.vm.preferences.text_size)
-                .line_height(self.vm.preferences.text_size * 1.5)
+                .line_height(iced::advanced::text::LineHeight::Absolute(
+                    (self.vm.preferences.text_size * 1.5).into(),
+                ))
                 .shaping(iced::advanced::text::Shaping::Advanced)
                 .into()
         };
@@ -1302,6 +1345,51 @@ impl App {
             body
         ]
         .spacing(7);
+        if translation_chrome(msg) > 0. {
+            let mut translation_row = row![].spacing(8).align_y(iced::Center);
+            let status = if msg.translation_pending {
+                self.tr("Translating…")
+            } else if let Some(error) = &msg.translation_error {
+                format!("{}: {}", self.tr("Translation failed"), truncate(error, 96))
+            } else {
+                self.tr(if msg.translation_show_original {
+                    "Original message"
+                } else {
+                    "Translated message"
+                })
+            };
+            translation_row = translation_row.push(text(status).size(12).width(Fill));
+            if let (Some(account), Some(chat)) = (&self.vm.selected_account, self.vm.selected_chat)
+            {
+                if msg.translation.is_some() {
+                    translation_row = translation_row.push(self.action(
+                        if msg.translation_show_original {
+                            "Show translation"
+                        } else {
+                            "Show original"
+                        },
+                        UiCommand::ToggleMessageTranslation {
+                            account: account.clone(),
+                            chat,
+                            topic: self.vm.selected_topic,
+                            id: msg.id,
+                        },
+                    ));
+                }
+                if msg.translation_error.is_some() && !msg.translation_pending {
+                    translation_row = translation_row.push(self.action(
+                        "Retry translation",
+                        UiCommand::RetryTranslation {
+                            account: account.clone(),
+                            chat,
+                            topic: self.vm.selected_topic,
+                            id: msg.id,
+                        },
+                    ));
+                }
+            }
+            content = content.push(container(translation_row).height(translation_chrome(msg) - 7.));
+        }
         if let Some(path) = &msg.image_path {
             let preview: Element<'a, Event> = match self
                 .image_cache
@@ -1341,7 +1429,9 @@ impl App {
             content = content.push(
                 text(value)
                     .size(self.vm.preferences.text_size)
-                    .line_height(self.vm.preferences.text_size * 1.5)
+                    .line_height(iced::advanced::text::LineHeight::Absolute(
+                        (self.vm.preferences.text_size * 1.5).into(),
+                    ))
                     .shaping(iced::advanced::text::Shaping::Advanced),
             );
         }
@@ -1350,15 +1440,15 @@ impl App {
             button(text("Select").size(12))
                 .padding([7, 10])
                 .style(button::secondary)
-                .on_press(Event::Inspect(msg.text.clone())),
+                .on_press(Event::Inspect(msg.display_text().to_owned())),
             button(text("Format").size(12))
                 .padding([7, 10])
                 .style(button::secondary)
-                .on_press(Event::Markdown(msg.text.clone())),
+                .on_press(Event::Markdown(msg.display_text().to_owned())),
             button(text("Copy").size(12))
                 .padding([7, 10])
                 .style(button::secondary)
-                .on_press(Event::Copy(msg.text.clone()))
+                .on_press(Event::Copy(msg.display_text().to_owned()))
         ]
         .spacing(5);
         if msg.failed {
@@ -1424,7 +1514,8 @@ fn measure_text(value: &str, width: f32, size: f32) -> f32 {
     paragraph.min_bounds().height.max(size * 1.5)
 }
 fn message_height(message: &MessageView, width: f32, size: f32) -> f32 {
-    100. + measure_text(&message.text, width, size)
+    100. + translation_chrome(message)
+        + measure_text(message.display_text(), width, size)
         + if message.image_path.is_some() {
             187.
         } else {
@@ -1445,6 +1536,10 @@ fn message_height(message: &MessageView, width: f32, size: f32) -> f32 {
 fn height_key(message: &MessageView, width: f32, size: f32) -> u64 {
     let mut hash = std::collections::hash_map::DefaultHasher::new();
     message.text.hash(&mut hash);
+    message.translation.hash(&mut hash);
+    message.translation_pending.hash(&mut hash);
+    message.translation_error.hash(&mut hash);
+    message.translation_show_original.hash(&mut hash);
     message.transcription.hash(&mut hash);
     message.image_path.hash(&mut hash);
     message.media_kind.hash(&mut hash);
@@ -1460,7 +1555,8 @@ fn estimate_height(message: &MessageView, width: f32, size: f32) -> f32 {
             .sum::<f32>()
             .max(22.)
     };
-    100. + line(&message.text)
+    100. + translation_chrome(message)
+        + line(message.display_text())
         + if message.image_path.is_some() {
             187.
         } else {
@@ -1736,5 +1832,89 @@ mod preview_tests {
         }
         assert!(!cache.entries.contains_key(&PathBuf::from("0.png")));
         assert!(cache.entries.contains_key(&PathBuf::from("39.png")));
+    }
+}
+
+fn should_sync_draft(previous: &str, next: &str, editor: &str) -> bool {
+    previous != next && editor == previous
+}
+
+fn translation_chrome(message: &MessageView) -> f32 {
+    if message.translation_error.is_some() {
+        60.
+    } else if message.translation_pending || message.translation.is_some() {
+        44.
+    } else {
+        0.
+    }
+}
+
+#[cfg(test)]
+mod translation_layout_tests {
+    use super::*;
+    #[test]
+    fn send_ack_after_return_clears_restored_draft_but_preserves_new_typing() {
+        // Returning to the sending chat restores its draft without a local send marker.
+        assert!(should_sync_draft("sent draft", "", "sent draft"));
+        assert!(!should_sync_draft("sent draft", "", "newer draft"));
+        // An unchanged snapshot cannot undo typing that has not reached the actor yet.
+        assert!(!should_sync_draft(
+            "sent draft",
+            "sent draft",
+            "newer draft"
+        ));
+    }
+
+    #[test]
+    fn translated_text_and_original_toggle_remeasure_without_mutating_source() {
+        let source = MessageView {
+            text: "Original message".into(),
+            ..Default::default()
+        };
+        let mut translated = MessageView {
+            translation: Some("A translated message that wraps onto additional lines. ".repeat(20)),
+            ..source.clone()
+        };
+        assert_eq!(translated.text, source.text);
+        assert!(message_height(&translated, 240., 14.) > message_height(&source, 240., 14.));
+        let translated_key = height_key(&translated, 240., 14.);
+        let translated_height = message_height(&translated, 240., 14.);
+        translated.translation_show_original = true;
+        assert_eq!(translated.display_text(), source.text);
+        assert_ne!(translated_key, height_key(&translated, 240., 14.));
+        assert!(message_height(&translated, 240., 14.) < translated_height);
+        assert_eq!(translated.text, "Original message");
+    }
+    #[test]
+    fn pending_and_error_rows_reserve_space_and_invalidate_layout_cache() {
+        let source = MessageView {
+            text: "Original".into(),
+            ..Default::default()
+        };
+        let pending = MessageView {
+            translation_pending: true,
+            ..source.clone()
+        };
+        let error = MessageView {
+            translation_error: Some("Provider unavailable".into()),
+            ..source.clone()
+        };
+        assert_eq!(
+            message_height(&pending, 300., 14.) - message_height(&source, 300., 14.),
+            44.
+        );
+        assert_eq!(
+            message_height(&error, 300., 14.) - message_height(&source, 300., 14.),
+            60.
+        );
+        assert_ne!(
+            height_key(&source, 300., 14.),
+            height_key(&pending, 300., 14.)
+        );
+        assert_ne!(
+            height_key(&pending, 300., 14.),
+            height_key(&error, 300., 14.)
+        );
+        assert_eq!(error.display_text(), "Original");
     }
 }

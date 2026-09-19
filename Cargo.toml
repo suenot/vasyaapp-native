@@ -4,7 +4,7 @@ members = ["crates/vasya-core", "crates/vasya-server", "crates/vasya-backend", "
 exclude = ["vasyaapp", "sidecars/stt-sidecar", "sidecars/voip-sidecar"]
 
 [workspace.package]
-version = "0.9.0"
+version = "0.10.0"
 edition = "2021"
 license = "Unlicense"
 

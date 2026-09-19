@@ -11,6 +11,7 @@ Both frontends use the same commands and state from `vasya-native`; differences 
 | Attachments | Native file picker, clipboard images, download/open, bounded image previews |
 | Capture | Native AVFoundation microphone and camera helper; OS permission required when invoked |
 | Audio/video | Open downloaded media using the system application |
+| Translation | Independent incoming/outgoing chat languages, provider settings, originals, retry, translated attachment captions |
 | Transcription | Deepgram, local Whisper, model installation, automatic transcription preference |
 | Preferences | Light/dark appearance, language, scale, text size, density, grouping, folders, shortcuts, notifications |
 | Connections | Embedded Rust engine, remote REST/SSE, legacy metadata storage configuration |

@@ -135,6 +135,26 @@ pub async fn openapi_json() -> Json<serde_json::Value> {
         "/api/v1/accounts/{acc}/group-calls/leave": { "post": op("Leave a group call {callId} (204)", "calls") },
         "/api/v1/accounts/{acc}/group-calls/participants": { "get": op("List group call participants; query: callId, accessHash", "calls") },
         "/api/v1/accounts/{acc}/group-calls/mute": { "post": op("Mute/unmute self in a group call {callId, muted} (204)", "calls") },
+        "/api/v1/translation/settings": {
+            "get": op("Human session only. Translation settings {base_url, model, api_key_set}; credentials are never returned", "translation"),
+            "put": { "summary": "Human session only. Save encrypted per-user provider settings. Omit api_key to preserve; empty string clears",
+                "tags": ["translation"],
+                "requestBody": { "required": true, "content": { "application/json": { "schema": {
+                    "type": "object", "required": ["base_url", "model"], "properties": {
+                        "base_url": { "type": "string", "description": "HTTPS API base URL, e.g. https://provider.example/v1; HTTP allowed only for loopback" },
+                        "model": { "type": "string" }, "api_key": { "type": "string", "writeOnly": true }
+                    } } } } },
+                "responses": { "200": { "description": "{base_url, model, api_key_set}" } } }
+        },
+        "/api/v1/translation/translate": { "post": {
+            "summary": "Human session only. Translate using the configured provider. Input up to 32 KiB; failures never return original text as a translation",
+            "tags": ["translation"],
+            "requestBody": { "required": true, "content": { "application/json": { "schema": {
+                "type": "object", "required": ["text", "targetLanguage"], "properties": {
+                    "text": { "type": "string" }, "targetLanguage": { "type": "string" }
+                } } } } },
+            "responses": { "200": { "description": "{text}" }, "400": { "description": "Invalid input, unavailable settings, or provider failure" } }
+        } },
         "/api/v1/stt/settings": {
             "get": op("STT settings for the caller; the Deepgram key is never returned (masked preview only)", "stt"),
             "put": { "summary": "Update STT settings {provider?, deepgramApiKey?, whisperModel?, language?} — key is write-only; empty string clears it",

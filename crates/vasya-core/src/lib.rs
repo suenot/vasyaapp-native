@@ -12,3 +12,5 @@ pub mod stt;
 pub mod telegram;
 
 pub use telegram::TelegramClientManager;
+
+pub mod translation;

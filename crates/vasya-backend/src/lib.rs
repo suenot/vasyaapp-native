@@ -701,6 +701,87 @@ mod storage;
 mod tests {
     use super::*;
     #[tokio::test]
+    async fn translation_embedded_adapter_roundtrip_and_restore() {
+        use axum::{routing::post, Json};
+        let app = axum::Router::new().route("/v1/chat/completions", post(
+            |headers: axum::http::HeaderMap, Json(body): Json<Value>| async move {
+                assert_eq!(headers["authorization"], "Bearer private-test-token");
+                assert_eq!(body["messages"][1]["content"], "Hello\nAda 42");
+                assert_eq!(body["model"], "test-model");
+                Json(json!({"choices":[{"message":{"content":"Bonjour\nAda 42"},"finish_reason":"stop"}]}))
+            }
+        ));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}/v1", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let dir = tempfile::tempdir().unwrap();
+        let backend = Backend::new(dir.path().into()).await.unwrap();
+        let path = "/api/v1/translation/settings";
+        assert_eq!(
+            backend.request("GET", path, Value::Null).await.unwrap()["api_key_set"],
+            false
+        );
+        let saved = backend
+            .request(
+                "PUT",
+                path,
+                json!({
+                    "base_url":base,"model":"test-model","api_key":"private-test-token"
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(saved["api_key_set"], true);
+        assert!(saved.get("api_key").is_none());
+        assert!(!saved.to_string().contains("private-test-token"));
+        let encrypted = std::fs::read(dir.path().join("translation/local/settings.enc")).unwrap();
+        assert!(!String::from_utf8_lossy(&encrypted).contains("private-test-token"));
+        backend.shutdown().await;
+        drop(backend);
+        let restored = Backend::new(dir.path().into()).await.unwrap();
+        assert_eq!(
+            restored.request("GET", path, Value::Null).await.unwrap(),
+            saved
+        );
+        assert_eq!(
+            restored
+                .request(
+                    "POST",
+                    "/api/v1/translation/translate",
+                    json!({
+                        "text":"Hello\nAda 42","targetLanguage":"French"
+                    })
+                )
+                .await
+                .unwrap(),
+            json!({"text":"Bonjour\nAda 42"})
+        );
+        assert!(restored
+            .request(
+                "POST",
+                "/api/v1/translation/translate",
+                json!({
+                    "text":"", "targetLanguage":"French"
+                })
+            )
+            .await
+            .is_err());
+        let cleared = restored
+            .request(
+                "PUT",
+                path,
+                json!({
+                    "base_url":base,"model":"test-model","api_key":""
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(cleared["api_key_set"], false);
+        restored.shutdown().await;
+        server.abort();
+    }
+
+    #[tokio::test]
     async fn embedded_rest_graphql_cache_and_preferences_restore() {
         let dir = tempfile::tempdir().unwrap();
         let backend = Backend::new(dir.path().into()).await.unwrap();

@@ -99,6 +99,11 @@ pub async fn agent_policy(
         // Scope + per-account enforcement therefore moves into the resolver
         // layer (`graphql.rs::authorize`), mirroring this same scope map. The
         // agent identity is already in the request extensions; let it through.
+        Some(&"translation") => {
+            return Err(ApiError::Forbidden(
+                "Translation settings and requests require a human session".into(),
+            ))
+        }
         Some(&"graphql") => return Ok(next.run(req).await),
         Some(&"agent-keys") | Some(&"audit") => {
             return Err(ApiError::Forbidden(

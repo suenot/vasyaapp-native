@@ -3,6 +3,7 @@ mod benchmark;
 mod hotkeys;
 mod i18n;
 mod platform;
+mod translation;
 mod types;
 use anyhow::{anyhow, Context, Result};
 pub use hotkeys::{default_hotkeys, shortcut_action};
@@ -15,6 +16,7 @@ use std::{
     time::Duration,
 };
 use tokio::sync::{mpsc, watch};
+use translation::{IncomingKey, SendIntent, SendPayload, TranslationState};
 pub use types::*;
 use vasya_backend::Backend;
 use vasya_core::events::Event;
@@ -108,6 +110,11 @@ struct DialogKey {
 }
 #[derive(Clone, Debug)]
 enum Query {
+    TranslationProvider(u64),
+    TranslationPreferences(DialogKey, Value),
+    TranslationIncoming(IncomingKey),
+    TranslationOutgoing(Box<SendIntent>),
+    Delivery(Box<SendIntent>),
     Accounts,
     LoggedOut(String),
     Credentials,
@@ -119,7 +126,6 @@ enum Query {
     Topics(DialogKey),
     Messages(DialogKey, bool, u64),
     Jump(DialogKey, i32),
-    Sent(DialogKey, i32),
     Form(FormKind),
     Submitted(Submission),
     Downloaded(DialogKey, i32, bool),
@@ -131,6 +137,8 @@ enum Query {
 }
 #[derive(Clone, Debug)]
 enum Submission {
+    TranslationSettings,
+    ChatTranslation(DialogKey),
     Hotkeys,
     Storage,
     Tabs,
@@ -195,6 +203,7 @@ struct Controller {
     settings: Value,
     data_dir: PathBuf,
     voice_stop: Option<watch::Sender<bool>>,
+    translation: TranslationState,
     tasks: std::sync::Mutex<Vec<tokio::task::AbortHandle>>,
 }
 impl Controller {
@@ -240,6 +249,7 @@ impl Controller {
             settings: json!({}),
             data_dir,
             voice_stop: None,
+            translation: TranslationState::default(),
             tasks: std::sync::Mutex::new(Vec::new()),
         }
     }
@@ -259,6 +269,7 @@ impl Controller {
         }
     }
     fn publish(&mut self) {
+        self.pump_translations();
         if self.chats_dirty {
             self.rebuild_chats();
             self.chats_dirty = false;
@@ -267,6 +278,7 @@ impl Controller {
             self.rebuild_history();
             self.history_dirty = false;
         }
+        self.decorate_translation();
         self.vm.revision += 1;
         self.tx.send_replace(Arc::new(self.vm.clone()));
     }
@@ -533,21 +545,24 @@ impl Controller {
                 }
             },
             UiCommand::SelectAccount(account) => {
+                self.save_translation_draft();
                 self.vm.selected_account=Some(account.clone()); self.vm.selected_chat=None; self.vm.selected_topic=None;
                 self.vm.messages=Arc::new(vec![]);self.vm.topics.clear();self.vm.folders.clear();self.tabs.clear();self.folders.clear();self.vm.selected_folder=None;self.vm.search.clear();self.vm.draft.clear();
                 self.visible_chats();self.load_chats(account);
             }
             UiCommand::JumpToMessage(chat,id)=>{self.command(UiCommand::SelectChat(chat))?;self.vm.search_hits=Arc::new(vec![]);self.vm.detail=None;let key=self.key().context("Choose a chat")?;self.get(Query::Jump(key.clone(),id),format!("{}/messages?limit=50&offset_id={}",Self::dialog_path(&key),id.saturating_add(1)),false);},
             UiCommand::SelectChat(chat) => {
+                self.save_translation_draft();
                 self.vm.selected_chat=Some(chat); self.vm.selected_topic=None;self.vm.jump_to=None;self.vm.topics.clear();self.vm.draft.clear();self.vm.has_older=true;
                 self.vm.chat_title=self.chats.get(self.vm.selected_account.as_deref().unwrap_or("")).into_iter().flatten().find(|c|c.id==chat).map(|c|c.title.clone()).unwrap_or_else(||chat.to_string());
+                self.restore_translation_draft();
                 self.show_history();
                 if let Some(key)=self.key() {
                     self.load_messages(key.clone(),false);
                     if self.vm.chats.iter().any(|c|c.id==chat && c.is_forum) { self.get(Query::Topics(key.clone()),format!("{}/topics",Self::dialog_path(&key)),false); }
                 }
             }
-            UiCommand::SelectTopic(topic) => { self.vm.selected_topic=topic;self.show_history(); if let Some(key)=self.key(){self.load_messages(key,false);} }
+            UiCommand::SelectTopic(topic) => { self.save_translation_draft();self.vm.selected_topic=topic;self.restore_translation_draft();self.show_history(); if let Some(key)=self.key(){self.load_messages(key,false);} }
             UiCommand::SelectFolder(folder) => {self.vm.selected_folder=folder;self.visible_chats();}
             UiCommand::Search(search) => {
                 self.vm.search=search.clone();self.search_results.clear();self.visible_chats();self.generation+=1;
@@ -559,14 +574,16 @@ impl Controller {
                     self.search_task=Some(self.spawn(async move {tokio::time::sleep(Duration::from_millis(300)).await;let result=backend.request("GET",&path,Value::Null).await;let _=tx.send(Reply{epoch,query:Query::GlobalSearch(account,generation),result,cached:false}).await;}));
                 }
             }
-            UiCommand::Draft(text)=>self.vm.draft=text,
+            UiCommand::Draft(text)=>{self.vm.draft=text;self.translation.draft_revision+=1;self.save_translation_draft();},
+            UiCommand::ToggleMessageTranslation{account,chat,topic,id}=>self.translation_action(DialogKey{account,chat,topic},id,false),
+            UiCommand::RetryTranslation{account,chat,topic,id}=>self.translation_action(DialogKey{account,chat,topic},id,true),
             UiCommand::Send=>self.send_message(None)?,
             UiCommand::Retry(id)=>self.send_message(Some(id))?,
             UiCommand::LoadOlder=>if let Some(key)=self.key(){if self.vm.has_older {self.load_messages(key,true);}},
             UiCommand::Refresh=>self.refresh(),
             UiCommand::OpenForm(kind)=>self.open_form(kind),
             UiCommand::SubmitForm(values)=>self.submit(values)?,
-            UiCommand::CloseOverlay=>{self.vm.form=None;self.vm.detail=None;self.vm.search_hits=Arc::new(vec![]);self.form_kind=None;},
+            UiCommand::CloseOverlay=>{self.vm.busy=false;self.vm.form=None;self.vm.detail=None;self.vm.search_hits=Arc::new(vec![]);self.form_kind=None;},
             UiCommand::DismissError=>self.vm.error=None,
             UiCommand::ToggleTheme=>{self.vm.dark=!self.vm.dark;self.settings["dark"]=json!(self.vm.dark);self.request(Query::Ignore,"PUT","/native/settings".into(),self.settings.clone(),false);},
             UiCommand::Forward(id)=>{self.forward_ids=vec![id];self.open_form(FormKind::Forward(id));},
@@ -577,21 +594,14 @@ impl Controller {
             UiCommand::SendFile(path)=>self.upload(path)?,
             UiCommand::SendClipboardImage { bytes, extension } => {
                 if !matches!(extension.to_lowercase().as_str(), "png" | "jpg" | "jpeg" | "webp" | "gif" | "tiff") || bytes.len() > 32 * 1024 * 1024 { return Err(anyhow!("Clipboard image format or size unsupported")); }
-                let key=self.key().context("Choose a chat")?;
-                let path=self.data_dir.join("captures").join(format!("clipboard-{}.{}",chrono::Utc::now().timestamp_millis(),extension));
-                let backend=self.backend.clone();let tx=self.replies_tx.clone();let epoch=self.epoch;
-                self.spawn(async move { let result=async {
-                    tokio::fs::create_dir_all(path.parent().unwrap()).await?;tokio::fs::write(&path,bytes).await?;
-                    let mut endpoint=format!("{}/media",Controller::dialog_path(&key));
-                    if let Some(topic)=key.topic { endpoint.push_str(&format!("?topic_id={topic}")); }
-                    let result=backend.upload(&endpoint,path.clone()).await;let _=tokio::fs::remove_file(path).await;result
-                }.await;
-                let _=tx.send(Reply{epoch,query:Query::Sent(key,0),result,cached:false}).await; });
+                self.begin_send(SendPayload::Clipboard(Arc::new(bytes),extension),None)?;
             },
             UiCommand::VisibleMessages { account, chat, topic, ids } => {
                 // A queued viewport update belongs to the snapshot that produced it,
                 // even when another dialog contains the same numeric message IDs.
                 if self.key() != Some(DialogKey { account, chat, topic }) { return Ok(()); }
+                self.translation.visible_dialog=self.key();
+                self.translation.visible=ids.iter().copied().take(80).collect();
                 for id in ids.into_iter().take(80) {
                     if let Some(message)=self.vm.messages.iter().find(|m|m.id==id) {
                         if (message.media_kind.as_deref()==Some("photo")&&self.vm.preferences.auto_photos)||(message.media_kind.as_deref()==Some("sticker")&&self.vm.preferences.auto_stickers) {let _=self.download(id,false);}
@@ -602,7 +612,7 @@ impl Controller {
             UiCommand::Logout=>{
                 let account=self.vm.selected_account.clone().context("Choose an account")?;let path=self.account_path()?;
                 self.epoch+=1;self.abort_requests();self.loading.clear();self.cached_pages.clear();self.loading_chats.clear();self.refresh_needed.clear();
-                self.denied_accounts.insert(account.clone());self.chats.remove(&account);self.histories.retain(|k,_|k.account!=account);self.downloads.retain(|(k,_),_|k.account!=account);self.downloading.retain(|(k,_)|k.account!=account);self.transcribing.retain(|(k,_)|k.account!=account);
+                self.forget_translation_account(&account);self.denied_accounts.insert(account.clone());self.chats.remove(&account);self.histories.retain(|k,_|k.account!=account);self.downloads.retain(|(k,_),_|k.account!=account);self.downloading.retain(|(k,_)|k.account!=account);self.transcribing.retain(|(k,_)|k.account!=account);
                 self.vm.accounts.retain(|a|a.id!=account);self.vm.selected_account=None;self.vm.selected_chat=None;self.vm.selected_topic=None;self.vm.folders.clear();self.vm.topics.clear();self.vm.chats=Arc::new(vec![]);self.vm.messages=Arc::new(vec![]);self.vm.draft.clear();self.vm.search_hits=Arc::new(vec![]);self.search_results.clear();
                 self.request(Query::LoggedOut(account),"DELETE",path,Value::Null,false);
             },
@@ -622,6 +632,8 @@ impl Controller {
         Ok(())
     }
     fn clear_transport(&mut self) {
+        self.save_translation_draft();
+        self.reset_translation();
         self.transport_changing = true;
         self.denied_accounts.clear();
         self.vm.form = None;
@@ -648,76 +660,10 @@ impl Controller {
         self.vm.messages = Arc::new(vec![]);
     }
     fn send_message(&mut self, retry: Option<i32>) -> Result<()> {
-        let key = self.key().context("Choose a chat first")?;
-        let text = if let Some(id) = retry {
-            self.histories
-                .get(&key)
-                .and_then(|v| v.iter().find(|m| m.id == id))
-                .map(|m| m.text.clone())
-                .context("Message no longer available")?
-        } else {
-            self.vm.draft.trim().to_string()
-        };
-        if text.is_empty() {
-            return Ok(());
-        }
-        let id = retry.unwrap_or_else(|| {
-            let id = self.pending_id;
-            self.pending_id -= 1;
-            id
-        });
-        let history = self.histories.entry(key.clone()).or_default();
-        history.retain(|m| m.id != id);
-        history.push(MessageView {
-            id,
-            sender: "You".into(),
-            text: text.clone(),
-            time: chrono::Local::now().format("%H:%M").to_string(),
-            outgoing: true,
-            pending: true,
-            ..Default::default()
-        });
-        self.vm.draft.clear();
-        self.show_history();
-        self.request(
-            Query::Sent(key.clone(), id),
-            "POST",
-            format!("{}/messages", Self::dialog_path(&key)),
-            json!({"text":text,"topicId":key.topic}),
-            false,
-        );
-        Ok(())
+        self.begin_send(SendPayload::Text, retry)
     }
-    fn upload(&self, path: PathBuf) -> Result<()> {
-        let key = self.key().context("Choose a chat")?;
-        let mut endpoint = format!(
-            "{}/media?caption={}",
-            Self::dialog_path(&key),
-            encode(&self.vm.draft)
-        );
-        if let Some(topic) = key.topic {
-            endpoint.push_str(&format!("&topic_id={topic}"));
-        }
-        if path.starts_with(self.data_dir.join("captures"))
-            && path.extension().and_then(|e| e.to_str()) == Some("m4a")
-        {
-            endpoint.push_str("&voice=true");
-        }
-        let backend = self.backend.clone();
-        let tx = self.replies_tx.clone();
-        let epoch = self.epoch;
-        self.spawn(async move {
-            let result = backend.upload(&endpoint, path).await;
-            let _ = tx
-                .send(Reply {
-                    epoch,
-                    query: Query::Sent(key, 0),
-                    result,
-                    cached: false,
-                })
-                .await;
-        });
-        Ok(())
+    fn upload(&mut self, path: PathBuf) -> Result<()> {
+        self.begin_send(SendPayload::File(path), None)
     }
     fn download(&mut self, id: i32, open: bool) -> Result<()> {
         let key = self.key().context("Choose a chat")?;
@@ -836,7 +782,15 @@ impl Controller {
         Ok(())
     }
     fn open_form(&mut self, kind: FormKind) {
+        if matches!(
+            kind,
+            FormKind::TranslationSettings | FormKind::ChatTranslation
+        ) {
+            self.open_translation_form(kind);
+            return;
+        }
         let (title, description, mut fields, submission) = match kind.clone() {
+            FormKind::TranslationSettings | FormKind::ChatTranslation => unreachable!(),
             FormKind::Hotkeys => ("Keyboard shortcuts","Use lowercase keys with meta+ctrl+alt+shift modifiers in that order. Escape and Enter remain reserved.",self.vm.preferences.hotkeys.iter().map(|(k,v)|field(k,&k.replace('_'," "),v,false)).chain(std::iter::once(field("reset_defaults","Reset to defaults","false",false))).collect(),Submission::Hotkeys),
             FormKind::Storage => (
                 "Metadata storage",
@@ -1149,6 +1103,7 @@ impl Controller {
         let submission = self.form_kind.clone().context("No form is open")?;
         let query = Query::Submitted(submission.clone());
         match submission {
+            Submission::TranslationSettings | Submission::ChatTranslation(_) => return self.submit_translation(values,submission),
             Submission::Hotkeys=>{let keys=if get("reset_defaults")=="true"{default_hotkeys()}else{let mut result=BTreeMap::new();let mut seen=HashSet::new();for action in default_hotkeys().keys(){let chord=get(action);if chord.is_empty()||chord.contains(' ')||chord=="enter"||chord=="escape"||!seen.insert(chord.to_string()){return Err(anyhow!("Shortcuts must be unique, nonempty and cannot use Enter or Escape"));}result.insert(action.clone(),chord.to_string());}result};self.settings["hotkeys"]=serde_json::to_value(keys)?;self.request(query,"PUT","/native/settings".into(),self.settings.clone(),false);},
             Submission::Storage=>{if !matches!(get("mode"),"local"|"remote"){return Err(anyhow!("Storage mode must be local or remote"));}let mut body=json!({"mode":get("mode"),"url":get("url")});if !get("apiKey").is_empty(){body["apiKey"]=json!(get("apiKey"));}self.request(query,"PUT","/native/storage".into(),body,false);},
             Submission::Tabs=>{let mut tabs=vec![];for folder in self.all_folders(){let id=&folder.id;tabs.push(json!({"id":id,"account_id":self.vm.selected_account,"visible":get(&format!("visible_{id}")).parse::<bool>()?,"sort_order":get(&format!("order_{id}")).parse::<i32>()?}));}self.request(query,"PUT",format!("{}/tabs",self.account_path()?),json!(tabs),false);},
@@ -1188,6 +1143,12 @@ impl Controller {
         Ok(())
     }
     fn reply(&mut self, reply: Reply) {
+        if reply.epoch != self.epoch {
+            return;
+        }
+        if self.translation_reply(&reply) {
+            return;
+        }
         let query = reply.query;
         // Consume cache bookkeeping for every terminal response, including errors.
         let cached_page = match &query {
@@ -1224,17 +1185,6 @@ impl Controller {
                     self.resubscribe = true;
                     self.bootstrap();
                 }
-                if let Query::Sent(key, id) = &query {
-                    if let Some(items) = self.histories.get_mut(key) {
-                        if let Some(m) = items.iter_mut().find(|m| m.id == *id) {
-                            m.pending = false;
-                            m.failed = true;
-                        }
-                    }
-                    if self.key().as_ref() == Some(key) {
-                        self.show_history();
-                    }
-                }
                 if let Query::Downloaded(key, id, _) = &query {
                     self.downloading.remove(&(key.clone(), *id));
                 }
@@ -1251,6 +1201,11 @@ impl Controller {
             }
         };
         match query {
+            Query::TranslationIncoming(_)
+            | Query::TranslationOutgoing(_)
+            | Query::Delivery(_)
+            | Query::TranslationProvider(_)
+            | Query::TranslationPreferences(_, _) => unreachable!(),
             Query::LoggedOut(_) => {
                 self.get(Query::Accounts, "/api/v1/accounts".into(), false);
             }
@@ -1290,6 +1245,11 @@ impl Controller {
             }
             Query::Connection => {
                 self.vm.remote = value["remote"].as_bool().unwrap_or(false);
+                self.translation.scope = if self.vm.remote {
+                    format!("remote:{}", string(&value, "baseUrl").trim_end_matches('/'))
+                } else {
+                    "embedded".into()
+                };
             }
             Query::Chats(account, started) => {
                 let mut chats = arr(&value).iter().map(chat_view).collect::<Vec<_>>();
@@ -1438,16 +1398,6 @@ impl Controller {
                             );
                         }
                     }
-                }
-            }
-            Query::Sent(key, id) => {
-                let history = self.histories.entry(key.clone()).or_default();
-                history.retain(|m| m.id != id);
-                if value["id"].is_number() {
-                    merge_messages(history, vec![message_view(&value)], false);
-                }
-                if self.key().as_ref() == Some(&key) {
-                    self.show_history();
                 }
             }
             Query::Form(FormKind::LocalApi) => {

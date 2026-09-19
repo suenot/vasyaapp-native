@@ -4,6 +4,22 @@ All notable changes are documented here using Keep a Changelog and Semantic Vers
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-09-19
+
+### Added
+- Independent per-chat incoming and outgoing LLM translation in both native clients, including outgoing attachment captions.
+- Native global provider settings for OpenAI-compatible API URL, model and encrypted write-only token, in embedded and remote modes.
+- Incoming original/translation toggles, retry controls and bounded background viewport translation.
+
+### Fixed
+- Preserve drafts until delivery succeeds, retain per-dialog drafts across navigation and reject obsolete provider results before sending.
+- Preserve newer input when a previous send completes, including after leaving and returning to the chat.
+
+- Match incoming cached translations to the current edited text and fix Iced message line heights so text remains visible.
+
+### Security
+- Reuse encrypted profile credentials, prevent translation responses from entering general disk caches, and restrict remote translation routes to human-authenticated sessions.
+
 ## [0.9.0] - 2026-09-19
 
 ### Added

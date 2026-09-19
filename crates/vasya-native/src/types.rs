@@ -27,6 +27,19 @@ pub struct MessageView {
     pub media_kind: Option<String>,
     pub image_path: Option<PathBuf>,
     pub transcription: Option<String>,
+    pub translation: Option<String>,
+    pub translation_pending: bool,
+    pub translation_error: Option<String>,
+    pub translation_show_original: bool,
+}
+impl MessageView {
+    pub fn display_text(&self) -> &str {
+        if self.translation_show_original {
+            &self.text
+        } else {
+            self.translation.as_deref().unwrap_or(&self.text)
+        }
+    }
 }
 #[derive(Clone, Debug, Default)]
 pub struct FolderView {
@@ -120,6 +133,8 @@ pub struct ViewModel {
     pub search_hits: Arc<Vec<SearchHitView>>,
     pub jump_to: Option<i32>,
     pub remote: bool,
+    pub outgoing_translation_target: Option<String>,
+    pub outgoing_translation_pending: bool,
 }
 impl Default for ViewModel {
     fn default() -> Self {
@@ -151,11 +166,15 @@ impl Default for ViewModel {
             search_hits: Arc::new(vec![]),
             jump_to: None,
             remote: false,
+            outgoing_translation_target: None,
+            outgoing_translation_pending: false,
         }
     }
 }
 #[derive(Clone, Debug)]
 pub enum FormKind {
+    TranslationSettings,
+    ChatTranslation,
     Hotkeys,
     Storage,
     Tabs,
@@ -212,6 +231,18 @@ pub enum UiCommand {
         chat: i64,
         topic: Option<i32>,
         ids: Vec<i32>,
+    },
+    ToggleMessageTranslation {
+        account: String,
+        chat: i64,
+        topic: Option<i32>,
+        id: i32,
+    },
+    RetryTranslation {
+        account: String,
+        chat: i64,
+        topic: Option<i32>,
+        id: i32,
     },
     EmbeddedMode,
     DismissError,

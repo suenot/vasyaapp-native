@@ -186,6 +186,96 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn translation_is_human_only_bounded_and_never_exposes_key() {
+        let (_dir, app) = test_app("tok");
+        let unauth = app
+            .clone()
+            .oneshot(
+                Request::get("/api/v1/translation/settings")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unauth.status(), StatusCode::UNAUTHORIZED);
+        let settings = serde_json::json!({"base_url":"https://provider.example/v1", "model":"translator", "api_key":"private-translation-token"});
+        let saved = app
+            .clone()
+            .oneshot(
+                Request::put("/api/v1/translation/settings")
+                    .header("authorization", "Bearer tok")
+                    .header("content-type", "application/json")
+                    .body(Body::from(settings.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(saved.status(), StatusCode::OK);
+        let public = body_json(saved).await;
+        assert_eq!(public["api_key_set"], true);
+        assert!(public.get("api_key").is_none());
+        assert!(!public.to_string().contains("private-translation-token"));
+        let loaded = app
+            .clone()
+            .oneshot(
+                Request::get("/api/v1/translation/settings")
+                    .header("authorization", "Bearer tok")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(body_json(loaded).await, public);
+        let (_, agent) = create_agent_key(&app, &["stt:use", "accounts:read"]).await;
+        for (method, path, body) in [
+            ("GET", "/api/v1/translation/settings", "{}"),
+            ("PUT", "/api/v1/translation/settings", "{}"),
+            (
+                "POST",
+                "/api/v1/translation/translate",
+                r#"{"text":"Hello","targetLanguage":"French"}"#,
+            ),
+        ] {
+            let res = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(method)
+                        .uri(path)
+                        .header("authorization", format!("Bearer {agent}"))
+                        .header("content-type", "application/json")
+                        .body(Body::from(body))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(res.status(), StatusCode::FORBIDDEN, "{method} {path}");
+        }
+        for (text, expected) in [
+            (String::new(), StatusCode::BAD_REQUEST),
+            ("x".repeat(32 * 1024 + 1), StatusCode::BAD_REQUEST),
+            ("x".repeat(256 * 1024), StatusCode::PAYLOAD_TOO_LARGE),
+        ] {
+            let res = app
+                .clone()
+                .oneshot(
+                    Request::post("/api/v1/translation/translate")
+                        .header("authorization", "Bearer tok")
+                        .header("content-type", "application/json")
+                        .body(Body::from(
+                            serde_json::json!({"text":text,"targetLanguage":"French"}).to_string(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(res.status(), expected);
+            let bytes = res.into_body().collect().await.unwrap().to_bytes();
+            assert!(!String::from_utf8_lossy(&bytes).contains("private-translation-token"));
+        }
+    }
+
+    #[tokio::test]
     async fn health_is_public() {
         let (_dir, app) = test_app("tok");
         let res = app
