@@ -1,0 +1,14 @@
+[package]
+name = "vasyaapp-iced"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+vasya-native = { path = "../crates/vasya-native" }
+iced = { version = "0.14", features = ["tokio", "image", "advanced", "markdown"] }
+tokio.workspace = true
+rfd = "0.15"
+arboard = "3"
+image = { version = "0.25", default-features = false, features = ["png"] }
+serde_json.workspace = true

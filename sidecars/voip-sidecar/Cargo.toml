@@ -1,0 +1,32 @@
+[package]
+name = "voip-sidecar"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "voip-sidecar"
+path = "src/main.rs"
+
+[dependencies]
+# Audio
+cpal = "0.15"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Crypto for Telegram encryption
+aes = "0.8"
+sha2 = "0.10"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true

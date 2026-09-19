@@ -1,0 +1,17 @@
+[package]
+name = "vasyaapp-gpui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+gpui-kit = "0.6"
+vasya-native = { path = "../crates/vasya-native" }
+tokio.workspace = true
+anyhow.workspace = true
+rfd = "0.15"
+serde_json.workspace = true
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "tiff", "bmp"] }
+
+[dev-dependencies]
+tempfile = "3"

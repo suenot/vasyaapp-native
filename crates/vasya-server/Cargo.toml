@@ -1,0 +1,54 @@
+[package]
+name = "vasya-server"
+version.workspace = true
+description = "Telegram session host: axum REST API over vasya-core (library + standalone binary)"
+edition = "2021"
+
+[lib]
+name = "vasya_server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "vasya-server"
+path = "src/main.rs"
+
+[dependencies]
+vasya-core = { path = "../vasya-core" }
+
+# Telegram (raw TL calls in handlers)
+grammers-client = "0.8"
+grammers-session = "0.8"
+grammers-tl-types = "0.8"
+
+# HTTP stack (axum 0.8 required by async-graphql-axum 7)
+axum = { version = "0.8", features = ["ws"] }
+tower = { version = "0.5", features = ["limit"] }
+tower-http = { version = "0.6", features = ["cors", "limit"] }
+
+# GraphQL (queries/mutations + subscriptions over graphql-ws)
+async-graphql = "7"
+async-graphql-axum = "7"
+
+tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "signal"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+anyhow = "1.0"
+thiserror = "2.0"
+
+jsonwebtoken = "9"
+uuid = { version = "1", features = ["v4", "serde"] }
+rand = "0.8"
+sha2 = "0.10"
+percent-encoding = "2"
+chrono = "0.4"
+
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+tempfile = "3"

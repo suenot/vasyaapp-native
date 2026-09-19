@@ -1,0 +1,68 @@
+{
+  "platform": "macOS-27.0-arm64-arm-64bit",
+  "arch": "arm64",
+  "date": "2026-09-19",
+  "note": "Programmatic input-to-snapshot and toolkit CPU work; not GPU presentation or physical keyboard latency.",
+  "applications": {
+    "gpui": {
+      "metrics": {
+        "render_element_construction_p95_ms": 0.365,
+        "render_element_construction_max_ms": 0.403916,
+        "input_widget_to_snapshot_p95_ms": 18.2235,
+        "input_samples": 299,
+        "render_samples": 57,
+        "message_row_constructions": 344,
+        "loaded_messages": 3186,
+        "chats": 10000,
+        "gpu_frame_presentation_measured": false
+      },
+      "sample_at_seconds": 15,
+      "rss_kib": 154800,
+      "cpu_percent": 6.2
+    },
+    "iced": {
+      "metrics": {
+        "gui": "iced",
+        "target_duration_seconds": 30,
+        "duration_seconds": 30.09561925,
+        "chats": 10000,
+        "loaded_messages": 3662,
+        "snapshots": 1647,
+        "update_handler": {
+          "samples": 7199,
+          "p95_ms": 0.547,
+          "max_ms": 0.757
+        },
+        "view_construction": {
+          "samples": 6607,
+          "p95_ms": 0.036,
+          "max_ms": 0.101
+        },
+        "watch_delivery_to_handler": {
+          "samples": 1647,
+          "p95_ms": 0.474,
+          "max_ms": 26.297
+        },
+        "background_layout_completion": {
+          "samples": 1647,
+          "p95_ms": 7.367,
+          "max_ms": 119.311
+        },
+        "scripted_draft_to_snapshot": {
+          "samples": 300,
+          "p95_ms": 17.939,
+          "max_ms": 19.571
+        },
+        "timer_to_handler": {
+          "samples": 300,
+          "p95_ms": 8.424,
+          "max_ms": 19.6
+        },
+        "limitations": "Scripted application events, not physical input latency. View construction excludes widget layout, GPU submission, presentation and frame time."
+      },
+      "sample_at_seconds": 15,
+      "rss_kib": 140960,
+      "cpu_percent": 17.7
+    }
+  }
+}

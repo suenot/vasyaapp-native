@@ -1,0 +1,19 @@
+[package]
+name = "vasya-native"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+vasya-backend = { path = "../vasya-backend" }
+vasya-core = { path = "../vasya-core" }
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+chrono = "0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tempfile = "3"

@@ -1,0 +1,42 @@
+[package]
+name = "vasya-core"
+version.workspace = true
+description = "Tauri-free Telegram (grammers) engine shared by the desktop app and the server"
+edition = "2021"
+
+[dependencies]
+# Telegram MTProto engine
+# `proxy` feature exposes ConnectionParams.proxy_url (SOCKS5) for egress over a
+# Telegram-blocked IP. See TELEGRAM_PROXY_URL handling in telegram/client_manager.rs.
+grammers-client = { version = "0.8", features = ["proxy"] }
+grammers-session = "0.8"
+grammers-mtsender = { version = "0.8", features = ["proxy"] }
+grammers-tl-types = "0.8"
+
+# Async runtime (spawn, sync primitives, select!, timers)
+tokio = { version = "1.40", features = ["rt", "sync", "time", "macros"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Cloud STT (Deepgram) HTTP client. rustls so the server image needs no
+# system OpenSSL; matches the desktop app's reqwest configuration.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# Error handling
+anyhow = "1.0"
+
+# Encrypted session storage + master-key providers
+chacha20poly1305 = "0.10"
+keyring = { version = "3", features = ["apple-native", "windows-native"] }
+rand = "0.8"
+
+# DH key exchange for Telegram voice calls
+num-bigint = "0.4"
+num-traits = "0.2"
+sha1 = "0.10"
+sha2 = "0.10"
+
+# Logging
+tracing = "0.1"

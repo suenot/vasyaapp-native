@@ -1,0 +1,8 @@
+/vasyaapp/
+/target/
+/dist/
+**/target/
+.DS_Store
+.env
+.env.*
+*.log

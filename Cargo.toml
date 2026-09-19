@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = ["crates/vasya-core", "crates/vasya-server", "crates/vasya-backend", "crates/vasya-native", "vasyaapp-gpui", "vasyaapp-iced"]
+exclude = ["vasyaapp", "sidecars/stt-sidecar", "sidecars/voip-sidecar"]
+
+[workspace.package]
+version = "0.9.0"
+edition = "2021"
+license = "Unlicense"
+
+[profile.release]
+debug = 1
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
