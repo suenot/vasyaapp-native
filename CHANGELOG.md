@@ -4,6 +4,9 @@ All notable changes are documented here using Keep a Changelog and Semantic Vers
 
 ## [Unreleased]
 
+### Changed
+- Add focused Codex workspace guidance and a reusable efficiency audit prompt covering context, build ownership, proportional verification and hook diagnostics.
+
 ## [0.10.0] - 2026-09-19
 
 ### Added
