@@ -13,5 +13,6 @@
 - Embedded desktop applications need no server deployment. Server/remote changes require their documented infrastructure procedure. Never claim real Telegram, paid-provider or device acceptance from isolated mock tests.
 
 ## Context economy
+- Use the project-local [TypeSafe skill](.agents/skills/typesafe-ai/SKILL.md) for relevant AI design and integration work. Read its live documentation before implementing an integration; load `TYPESAFE_API_KEY` from the user's zsh environment without printing or committing it.
 - Search source paths directly; exclude `target/`, `dist/` and the upstream checkout unless needed. Do not load whole logs or source files when a relevant range suffices.
 - Use `docs/CODEX_AUDIT_PROMPT.md` only when asked to audit Codex usage or instructions; it is not a mandatory startup checklist.

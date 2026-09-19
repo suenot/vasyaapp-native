@@ -4,6 +4,9 @@ All notable changes are documented here using Keep a Changelog and Semantic Vers
 
 ## [Unreleased]
 
+### Added
+- Install the TypeSafe skill for Codex in the project and document its use for relevant AI design and integration work.
+
 ### Changed
 - Add focused Codex workspace guidance and a reusable efficiency audit prompt covering context, build ownership, proportional verification and hook diagnostics.
 
