@@ -1,7 +1,7 @@
 # Vasya native workspace
 
 ## Scope and ownership
-- Root Cargo workspace: `crates/vasya-core` and `crates/vasya-server` contain the engine/API; `crates/vasya-backend` provides adapters; `crates/vasya-native` owns shared state; `vasyaapp-gpui` and `vasyaapp-iced` render it.
+- Root Cargo workspace: `vasya-core` and `vasya-server` (the engine/API) come from the shared `suenot/vasya-engine` git dependency; `crates/vasya-backend` provides adapters; `crates/vasya-native` owns shared state; `vasyaapp-gpui` and `vasyaapp-iced` render it.
 - `vasyaapp/` is a separate, ignored upstream checkout. Edit it only when the task explicitly targets the original application; commit its changes in its own repository.
 - For parallel work, assign distinct backend/shared-state, GPUI and Iced ownership. Agree on shared types before dependent edits. One agent owns Cargo integration checks, packaging and the shared desktop UI session; avoid duplicate builds waiting on the same target directory.
 

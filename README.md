@@ -47,7 +47,7 @@ Unfinished call audio/video, message reply/edit/delete/pin and profile/privacy c
 
 ## Architecture and responsiveness
 
-`crates/vasya-core` contains the Telegram engine. `vasya-server` supplies the existing API contract. `vasya-backend` invokes the router in-process in embedded mode and uses REST/SSE in remote mode. `vasya-native` owns typed commands, immutable view snapshots, cache merging, scoped state and background tasks. The two GUI crates render that same state.
+`vasya-core` (the Telegram engine) and `vasya-server` (the API contract) come from the shared [vasya-engine](https://github.com/suenot/vasya-engine) repo, also used by the Tauri app. `vasya-backend` invokes the router in-process in embedded mode and uses REST/SSE in remote mode. `vasya-native` owns typed commands, immutable view snapshots, cache merging, scoped state and background tasks. The two GUI crates render that same state.
 
 Network, file operations, capture processes and transcription run off the UI thread. State keys include account/chat/topic; switching transport cancels outstanding work, and late responses cannot replace another dialog. Incoming edits/deletions take precedence over stale cache/history. Queued data for a logged-out account is discarded, and late session handles cannot recreate its deleted session file.
 

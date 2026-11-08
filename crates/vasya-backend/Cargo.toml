@@ -5,8 +5,8 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-vasya-core = { path = "../vasya-core" }
-vasya-server = { path = "../vasya-server" }
+vasya-core = { workspace = true }
+vasya-server = { workspace = true }
 anyhow.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
