@@ -13,8 +13,8 @@ debug = 1
 
 [workspace.dependencies]
 # Shared engine (vasya-core + vasya-server), also used by the Tauri app.
-vasya-core = { git = "https://github.com/suenot/vasya-engine", tag = "v0.2.0" }
-vasya-server = { git = "https://github.com/suenot/vasya-engine", tag = "v0.2.0" }
+vasya-core = { git = "https://github.com/suenot/vasya-engine", tag = "v0.3.0" }
+vasya-server = { git = "https://github.com/suenot/vasya-engine", tag = "v0.3.0" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
@@ -23,4 +23,4 @@ anyhow = "1"
 # Upstream grammers-session 0.8.0 hits `unreachable!()` on new-style channel
 # ids (PeerId::kind). The patched copy lives in vasya-engine/vendor.
 [patch.crates-io]
-grammers-session = { git = "https://github.com/suenot/vasya-engine", tag = "v0.2.0" }
+grammers-session = { git = "https://github.com/suenot/vasya-engine", tag = "v0.3.0" }
